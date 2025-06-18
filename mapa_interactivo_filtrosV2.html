@@ -1,0 +1,158 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Mapa Oportunidad con Filtros</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        html, body, #map { height: 100%; margin: 0; padding: 0; }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+        label {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        select {
+            margin-bottom: 10px;
+            width: 180px;
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+
+<div id="controls">
+    <div>
+        <label for="gerenciaFilter">Gerencia:</label>
+        <select id="gerenciaFilter" multiple size="5">
+            <option value="Todos" selected>Todos</option>
+        </select>
+    </div>
+    <div>
+        <label for="tierFilter">TIER:</label>
+        <select id="tierFilter" multiple size="3">
+            <option value="Todos" selected>Todos</option>
+        </select>
+    </div>
+    <div>
+        <label for="subcanalFilter">Subcanal:</label>
+        <select id="subcanalFilter" multiple size="5">
+            <option value="Todos" selected>Todos</option>
+        </select>
+    </div>
+</div>
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+
+// Cargar puntos desde archivo JSON
+fetch("puntos_oportunidad.json")
+    .then(response => response.json())
+    .then(data => {
+        const map = L.map("map").setView([4.57, -74.29], 6);
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "Map data © OpenStreetMap contributors"
+        }).addTo(map);
+
+        const tierColors = {
+            "Tier 1": "green",
+            "Tier 2": "orange",
+            "Tier 3": "red"
+        };
+
+        const markers = [];
+
+        data.forEach(punto => {
+            const marker = L.circleMarker([punto.Latitud, punto.Longitud], {
+                radius: 6,
+                fillColor: tierColors[punto.TIER] || "gray",
+                color: tierColors[punto.TIER] || "gray",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.7
+            }).bindPopup(
+                "<b>Cliente:</b> " + punto.CodigoCliente + "<br>" +
+                "<b>TIER:</b> " + punto.TIER + "<br>" +
+                "<b>Subcanal:</b> " + punto.Subcanal + "<br>" +
+                "<b>Gerencia:</b> " + punto.Gerencia
+            );
+            marker.gerencia = punto.Gerencia;
+            marker.tier = punto.TIER;
+            marker.addTo(map);
+            markers.push(marker);
+        });
+
+        // Filtros
+        const gerenciaSelect = document.getElementById("gerenciaFilter");
+        const tierSelect = document.getElementById("tierFilter");
+
+        // Rellenar opciones en los select
+function getUniqueValues(key) {
+    return [...new Set(data.map(p => p[key]).filter(v => v))].sort();
+}
+
+function fillSelect(selectElement, values) {
+    values.forEach(val => {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.innerText = val;
+        selectElement.appendChild(opt);
+    });
+}
+
+const gerenciaSelect = document.getElementById("gerenciaFilter");
+const tierSelect = document.getElementById("tierFilter");
+const subcanalSelect = document.getElementById("subcanalFilter");
+
+fillSelect(gerenciaSelect, getUniqueValues("Gerencia"));
+fillSelect(tierSelect, getUniqueValues("TIER"));
+fillSelect(subcanalSelect, getUniqueValues("Subcanal"));
+
+// Función para obtener valores seleccionados (ignorando "Todos" si hay más opciones seleccionadas)
+function getSelectedValues(select) {
+    const selected = Array.from(select.selectedOptions).map(opt => opt.value);
+    if (selected.includes("Todos") && selected.length > 1) {
+        // Si "Todos" está seleccionado junto con otros, quitar "Todos"
+        return selected.filter(v => v !== "Todos");
+    }
+    return selected;
+}
+
+// Actualizar visibilidad de los marcadores según filtros múltiples
+function updateVisibility() {
+    const selectedGerencias = getSelectedValues(gerenciaSelect);
+    const selectedTiers = getSelectedValues(tierSelect);
+    const selectedSubcanales = getSelectedValues(subcanalSelect);
+
+    markers.forEach(marker => {
+        const showGerencia = selectedGerencias.includes("Todos") || selectedGerencias.includes(marker.gerencia);
+        const showTier = selectedTiers.includes("Todos") || selectedTiers.includes(marker.tier);
+        const showSubcanal = selectedSubcanales.includes("Todos") || selectedSubcanales.includes(marker.subcanal);
+
+        if (showGerencia && showTier && showSubcanal) {
+            marker.addTo(map);
+        } else {
+            map.removeLayer(marker);
+        }
+    });
+}
+
+gerenciaSelect.addEventListener("change", updateVisibility);
+tierSelect.addEventListener("change", updateVisibility);
+subcanalSelect.addEventListener("change", updateVisibility);
+
+    });
+</script>
+</body>
+</html>
