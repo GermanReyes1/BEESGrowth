@@ -1,0 +1,246 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Mapa Oportunidad con Filtros (Checkboxes)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        html, body, #map {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 7px rgba(0,0,0,0.3);
+            max-height: 90vh;
+            overflow-y: auto;
+            width: 240px;
+            font-family: Arial, sans-serif;
+        }
+        h3 {
+            margin-top: 10px;
+            margin-bottom: 5px;
+            font-size: 16px;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 3px;
+            cursor: pointer;
+        }
+        .filter-option {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .filter-option input[type="checkbox"] {
+            margin-right: 6px;
+            cursor: pointer;
+        }
+        label {
+            cursor: pointer;
+        }
+        #map {
+            margin-left: 260px;
+        }
+        @media (max-width: 600px) {
+            #controls {
+                position: relative;
+                width: 100%;
+                max-height: none;
+                box-shadow: none;
+                margin-bottom: 10px;
+            }
+            #map {
+                margin-left: 0;
+                height: 70vh;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+
+<div id="controls">
+    <div class="filter-group" id="gerenciaFilterGroup">
+        <h3>Gerencia</h3>
+    </div>
+    <div class="filter-group" id="tierFilterGroup">
+        <h3>TIER</h3>
+    </div>
+    <div class="filter-group" id="subcanalFilterGroup">
+        <h3>Subcanal</h3>
+    </div>
+    <div class="filter-group" id="unidadFilterGroup">
+        <h3>UnidadNegocio</h3>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+<script>
+function createCheckbox(container, value, checked = true) {
+    const div = document.createElement("div");
+    div.className = "filter-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = value;
+    checkbox.checked = checked;
+    checkbox.id = container.id + "_" + value.replace(/\s+/g, "_");
+
+    const label = document.createElement("label");
+    label.htmlFor = checkbox.id;
+    label.textContent = value;
+
+    div.appendChild(checkbox);
+    div.appendChild(label);
+    container.appendChild(div);
+    return checkbox;
+}
+
+function getCheckedValues(contentDiv) {
+    const checkboxes = Array.from(contentDiv.querySelectorAll('input[type="checkbox"]'));
+    return checkboxes
+        .filter(cb => cb.checked && cb.value !== "Todos")
+        .map(cb => cb.value);
+}
+
+function setupFilterSection(title, containerId, values, onChange) {
+    const container = document.getElementById(containerId);
+    const header = container.querySelector("h3");
+    const content = document.createElement("div");
+    content.style.display = "none";
+    container.appendChild(content);
+
+    header.addEventListener("click", () => {
+        content.style.display = content.style.display === "none" ? "block" : "none";
+    });
+
+    const selectAllCheckbox = createCheckbox(content, "Todos", true);
+    selectAllCheckbox.addEventListener("change", () => {
+        const checkboxes = Array.from(content.querySelectorAll('input[type="checkbox"]')).filter(cb => cb !== selectAllCheckbox);
+        checkboxes.forEach(cb => { cb.checked = selectAllCheckbox.checked; });
+        onChange();
+    });
+
+    values.forEach(val => {
+        const cb = createCheckbox(content, val, true);
+        cb.addEventListener("change", () => {
+            const checkboxes = Array.from(content.querySelectorAll('input[type="checkbox"]')).filter(cb => cb.value !== "Todos");
+            selectAllCheckbox.checked = checkboxes.every(cb => cb.checked);
+            onChange();
+        });
+    });
+
+    return content;
+}
+
+fetch("puntos_oportunidadV3.json")
+    .then(response => response.json())
+    .then(data => {
+        const map = L.map("map").setView([4.57, -74.29], 6);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "Map data © OpenStreetMap contributors"
+        }).addTo(map);
+
+        const tierColors = {
+            "Recientes-30d": "purple",
+            "Tier 1": "green",
+            "Tier 2": "orange",
+            "Tier 3": "red"
+        };
+
+        const markers = [];
+        data.forEach(punto => {
+            const marker = L.circleMarker([punto.Latitud, punto.Longitud], {
+                radius: 6,
+                fillColor: tierColors[punto.TIER] || "gray",
+                color: "black",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).bindPopup(
+                `<b>Cliente:</b> ${punto.CodigoCliente}<br><b>TIER:</b> ${punto.TIER}<br><b>Subcanal:</b> ${punto.Subcanal}<br><b>Gerencia:</b> ${punto.Gerencia}<br><b>Unidad de Negocio:</b> ${punto.UnidadNegocio}`
+            );
+
+            marker.gerencia = punto.Gerencia;
+            marker.tier = punto.TIER;
+            marker.subcanal = punto.Subcanal;
+            marker.unidadNegocio = punto.UnidadNegocio;
+            marker.addTo(map);
+            markers.push(marker);
+        });
+
+        // Inicializar filtros
+        const gerenciaContent = setupFilterSection("Gerencia", "gerenciaFilterGroup", [...new Set(data.map(p => p.Gerencia))].sort(), updateVisibility);
+        const tierContent = setupFilterSection("TIER", "tierFilterGroup", [...new Set(data.map(p => p.TIER))].sort(), updateVisibility);
+        const subcanalContent = setupFilterSection("Subcanal", "subcanalFilterGroup", [...new Set(data.map(p => p.Subcanal))].sort(), updateVisibility);
+        const unidadContent = setupFilterSection("UnidadNegocio", "unidadFilterGroup", [...new Set(data.map(p => p.UnidadNegocio))].sort(), updateVisibility);
+
+        function updateVisibility() {
+            const selectedGerencias = getCheckedValues(gerenciaContent);
+            const selectedTiers = getCheckedValues(tierContent);
+            const selectedSubcanales = getCheckedValues(subcanalContent);
+            const selectedUnidades = getCheckedValues(unidadContent);
+
+            markers.forEach(marker => {
+                const visible = selectedGerencias.includes(marker.gerencia) &&
+                                selectedTiers.includes(marker.tier) &&
+                                selectedSubcanales.includes(marker.subcanal) &&
+                                selectedUnidades.includes(marker.unidadNegocio);
+
+                if (visible) marker.addTo(map);
+                else map.removeLayer(marker);
+            });
+        }
+
+        updateVisibility();
+
+        // Cargar heatmap DTC
+        fetch("ordenes_dtc.json")
+            .then(response => response.json())
+            .then(pedidos => {
+                const heatPoints = pedidos.map(p => [p.Latitud, p.Longitud]);
+                const heatLayer = L.heatLayer(heatPoints, {
+                    radius: 20,
+                    blur: 15,
+                    maxZoom: 17,
+                    gradient: {
+                        0.4: 'blue',
+                        0.65: 'lime',
+                        1: 'red'
+                    }
+                });
+
+                const toggleDiv = document.createElement("div");
+                toggleDiv.className = "filter-group";
+                toggleDiv.innerHTML = `
+                    <h3>Mapa de calor DTC</h3>
+                    <div class="filter-option">
+                        <input type="checkbox" id="toggleHeatmap" checked>
+                        <label for="toggleHeatmap">Mostrar mapa de calor</label>
+                    </div>
+                `;
+                document.getElementById("controls").appendChild(toggleDiv);
+
+                document.getElementById("toggleHeatmap").addEventListener("change", (e) => {
+                    if (e.target.checked) heatLayer.addTo(map);
+                    else map.removeLayer(heatLayer);
+                });
+
+                heatLayer.addTo(map);
+            });
+    });
+</script>
+
+
+</body>
+</html>
+
