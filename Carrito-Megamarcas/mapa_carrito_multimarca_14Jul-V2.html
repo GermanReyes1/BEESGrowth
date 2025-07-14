@@ -1,0 +1,205 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Mapa Clientes con Productos en el Carrito</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        html, body, #map { height: 100%; margin: 0; padding: 0; }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 7px rgba(0,0,0,0.3);
+            max-height: 90vh;
+            overflow-y: auto;
+            width: 260px;
+            font-family: Arial, sans-serif;
+        }
+        h3 {
+            margin-top: 10px;
+            margin-bottom: 5px;
+            font-size: 16px;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 3px;
+            cursor: pointer;
+        }
+        .filter-option {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .filter-option input[type="checkbox"] {
+            margin-right: 6px;
+            cursor: pointer;
+        }
+        label { cursor: pointer; }
+        #map { margin-left: 270px; }
+        @media (max-width: 600px) {
+            #controls {
+                position: relative;
+                width: 100%;
+                max-height: none;
+                box-shadow: none;
+                margin-bottom: 10px;
+            }
+            #map {
+                margin-left: 0;
+                height: 70vh;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+
+<div id="controls">
+    <div class="filter-group" id="marcaFilterGroup">
+        <h3>Marca</h3>
+    </div>
+    <div class="filter-group" id="regionalFilterGroup">
+        <h3>Regional</h3>
+    </div>
+    <div class="filter-group" id="gerenciaFilterGroup">
+        <h3>Gerencia</h3>
+    </div>
+    <div class="filter-group" id="unidadFilterGroup">
+        <h3>Unidad de Negocio</h3>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    fetch("mapa_oportunidad_carrito_sin_compra_14jul-V2.json")
+        .then(response => response.json())
+        .then(data => {
+            const map = L.map("map").setView([4.57, -74.3], 6);
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "Map data © OpenStreetMap contributors"
+            }).addTo(map);
+
+            const markers = [];
+
+            data.forEach(punto => {
+                const marker = L.circleMarker([punto.Latitud, punto.Longitud], {
+                    radius: 6,
+                    fillColor: "#0077cc",
+                    color: "black",
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).bindPopup(
+                    `<b>Cliente:</b> ${punto.CodigoCliente}<br>
+                     <b>Subcanal:</b> ${punto.Subcanal}<br>
+                     <b>Gerencia:</b> ${punto.Gerencia}<br>
+                     <b>Unidad Negocio:</b> ${punto.UnidadNegocio}<br>
+                     <b>Regional:</b> ${punto.Regional}<br>
+                     <b>Marca(s):</b> ${punto.Marcas.join(", ")}`
+                );
+
+                marker.marca = punto.Marcas;
+                marker.regional = punto.Regional;
+                marker.gerencia = punto.Gerencia;
+                marker.unidad = punto.UnidadNegocio;
+
+                marker.addTo(map);
+                markers.push(marker);
+            });
+
+            function setupFilter(groupId, values) {
+                const group = document.getElementById(groupId);
+                const header = group.querySelector("h3");
+                const content = document.createElement("div");
+                content.style.display = "none";
+                group.appendChild(content);
+
+                header.addEventListener("click", () => {
+                    content.style.display = content.style.display === "none" ? "block" : "none";
+                });
+
+                const selectAllDiv = document.createElement("div");
+                selectAllDiv.className = "filter-option";
+                const selectAllCheckbox = document.createElement("input");
+                selectAllCheckbox.type = "checkbox";
+                selectAllCheckbox.checked = true;
+                const selectAllLabel = document.createElement("label");
+                selectAllLabel.textContent = "Todos";
+                selectAllDiv.appendChild(selectAllCheckbox);
+                selectAllDiv.appendChild(selectAllLabel);
+                content.appendChild(selectAllDiv);
+
+                const checkboxes = [];
+
+                values.forEach(value => {
+                    const div = document.createElement("div");
+                    div.className = "filter-option";
+
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox";
+                    checkbox.checked = true;
+                    checkbox.value = value;
+
+                    const label = document.createElement("label");
+                    label.textContent = value;
+
+                    div.appendChild(checkbox);
+                    div.appendChild(label);
+                    content.appendChild(div);
+                    checkboxes.push(checkbox);
+                });
+
+                selectAllCheckbox.addEventListener("change", () => {
+                    checkboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+                    updateVisibility();
+                });
+
+                checkboxes.forEach(cb => {
+                    cb.addEventListener("change", () => {
+                        selectAllCheckbox.checked = checkboxes.every(cb => cb.checked);
+                        updateVisibility();
+                    });
+                });
+
+                return () => checkboxes.filter(cb => cb.checked).map(cb => cb.value);
+            }
+
+            function updateVisibility() {
+                const selectedMarcas = getMarcas();
+                const selectedRegionales = getRegionales();
+                const selectedGerencias = getGerencias();
+                const selectedUnidades = getUnidades();
+
+                markers.forEach(marker => {
+                    const visible =
+                        marker.marca.some(m => selectedMarcas.includes(m)) &&
+                        selectedRegionales.includes(marker.regional) &&
+                        selectedGerencias.includes(marker.gerencia) &&
+                        selectedUnidades.includes(marker.unidad);
+
+                    if (visible) {
+                        marker.addTo(map);
+                    } else {
+                        map.removeLayer(marker);
+                    }
+                });
+            }
+
+            const getMarcas = setupFilter("marcaFilterGroup", [...new Set(data.flatMap(d => d.Marcas))]);
+            const getRegionales = setupFilter("regionalFilterGroup", [...new Set(data.map(d => d.Regional))]);
+            const getGerencias = setupFilter("gerenciaFilterGroup", [...new Set(data.map(d => d.Gerencia))]);
+            const getUnidades = setupFilter("unidadFilterGroup", [...new Set(data.map(d => d.UnidadNegocio))]);
+
+            updateVisibility();
+        });
+</script>
+
+</body>
+</html>
+
